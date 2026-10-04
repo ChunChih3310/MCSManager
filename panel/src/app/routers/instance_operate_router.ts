@@ -404,11 +404,14 @@ router.put(
         instanceTags = instanceTags!.sort((a, b) => (a > b ? 1 : -1));
       }
 
-      // Steam Rcon configuration
+      // RCON configuration
       const rconIp = toText(config.rconIp);
       const rconPort = toNumber(config.rconPort);
       const rconPassword = toText(config.rconPassword);
       const enableRcon = toBoolean(config.enableRcon);
+      const rconProtocol = config.rconProtocol;
+      if (rconProtocol != null && rconProtocol !== "source" && rconProtocol !== "rust-web")
+        throw new Error($t("TXT_CODE_RCON_INVALID_PROTOCOL"));
 
       // Ping protocol configuration
       const pingConfig = {
@@ -462,6 +465,7 @@ router.put(
         rconPort,
         rconPassword,
         enableRcon,
+        rconProtocol,
         tag: instanceTags,
         fileCode,
         ...advancedConfig

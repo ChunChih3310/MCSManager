@@ -19,7 +19,8 @@ const formData = reactive({
   rconIp: "",
   rconPassword: "",
   rconPort: "",
-  enableRcon: false
+  enableRcon: false,
+  rconProtocol: "source" as "source" | "rust-web"
 });
 
 const open = ref(false);
@@ -29,6 +30,7 @@ const openDialog = () => {
   formData.rconPassword = props.instanceInfo?.config?.rconPassword ?? "";
   formData.rconPort = String(props.instanceInfo?.config?.rconPort || "");
   formData.enableRcon = props.instanceInfo?.config?.enableRcon ?? false;
+  formData.rconProtocol = props.instanceInfo?.config?.rconProtocol ?? "source";
 };
 
 const { execute, isLoading } = updateInstanceConfig();
@@ -45,7 +47,8 @@ const submit = async () => {
         rconIp: formData.rconIp,
         rconPassword: formData.rconPassword,
         rconPort: Number(formData.rconPort || 0),
-        enableRcon: formData.enableRcon
+        enableRcon: formData.enableRcon,
+        rconProtocol: formData.rconProtocol
       }
     });
     emit("update");
@@ -87,6 +90,14 @@ defineExpose({
           <a-switch v-model:checked="formData.enableRcon" />
         </a-form-item>
 
+        <a-form-item v-if="formData.enableRcon" name="rconProtocol">
+          <a-typography-title :level="5">{{ t("TXT_CODE_RCON_PROTOCOL") }}</a-typography-title>
+          <a-select v-model:value="formData.rconProtocol">
+            <a-select-option value="source">{{ t("TXT_CODE_RCON_SOURCE") }}</a-select-option>
+            <a-select-option value="rust-web">{{ t("TXT_CODE_RCON_RUST_WEB") }}</a-select-option>
+          </a-select>
+        </a-form-item>
+
         <a-form-item name="rconIp">
           <a-typography-title :level="5">{{ t("TXT_CODE_d629fa48") }}</a-typography-title>
           <a-typography-paragraph>
@@ -112,7 +123,7 @@ defineExpose({
               {{ t("TXT_CODE_3ae0276b") }}
             </a-typography-text>
           </a-typography-paragraph>
-          <a-input v-model:value="formData.rconPassword" :placeholder="t('TXT_CODE_25af3af3')" />
+          <a-input-password v-model:value="formData.rconPassword" :placeholder="t('TXT_CODE_25af3af3')" />
         </a-form-item>
       </a-form>
     </div>

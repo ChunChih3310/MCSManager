@@ -185,6 +185,33 @@ describe("instance: lifecycle + config (bare, no network)", () => {
     expect(String(g.data?.config?.stopCommand || "")).toBe("exit");
   });
 
+  it("persists a valid RCON protocol and rejects unknown protocols", async () => {
+    const update = (rconProtocol: string) => requestPanel({
+      method: "PUT",
+      path: "/protected_instance/instance_update",
+      cookie: u1().cookie,
+      token: u1().token,
+      query: { daemonId: di(), uuid: iu() },
+      body: { rconProtocol }
+    });
+    expect((await update("rust-web")).httpStatus).toBe(200);
+
+    const getProtocol = async () => {
+      const result = await requestPanel({
+        method: "GET",
+        path: "/instance",
+        cookie: u1().cookie,
+        token: u1().token,
+        query: { daemonId: di(), uuid: iu() }
+      });
+      return result.data?.config?.rconProtocol;
+    };
+    expect(await getProtocol()).toBe("rust-web");
+    expect((await update("ws://localhost")).httpStatus).not.toBe(200);
+    expect(await getProtocol()).toBe("rust-web");
+    expect((await update("source")).httpStatus).toBe(200);
+  });
+
   it("normal user cannot change startCommand on a non-docker instance; admin can", async () => {
     // First line of defense: PUT /api/instance is permission(ADMIN). A normal u1
     // session is rejected at the gate (403) and never reaches the handler — let

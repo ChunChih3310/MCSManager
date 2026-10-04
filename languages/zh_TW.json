@@ -3264,5 +3264,16 @@
   "TXT_CODE_fafe0a1": "修改",
   "TXT_CODE_fe7c7d2d": "關鍵字",
   "TXT_CODE_fe933494": "檢視並篩選所有使用者操作嘅稽核記錄",
-  "TXT_CODE_fef2078b": "使用者 <<operator_name>> 透過連結 <<file_name>> 下載了實例 <<instance_name>> 的檔案"
+  "TXT_CODE_fef2078b": "使用者 <<operator_name>> 透過連結 <<file_name>> 下載了實例 <<instance_name>> 的檔案",
+  "TXT_CODE_RCON_PROTOCOL": "RCON 協定",
+  "TXT_CODE_RCON_SOURCE": "Source RCON",
+  "TXT_CODE_RCON_RUST_WEB": "WebRCON（Rust）",
+  "TXT_CODE_RCON_INVALID_PROTOCOL": "無效的 RCON 協定",
+  "TXT_CODE_RCON_WEB_invalidTarget": "無效的 WebRCON 主機或連接埠",
+  "TXT_CODE_RCON_WEB_missingPassword": "必須設定 WebRCON 密碼",
+  "TXT_CODE_RCON_WEB_connect": "無法連線到 WebRCON",
+  "TXT_CODE_RCON_WEB_handshake": "WebRCON 連線遭拒；請檢查密碼與協定",
+  "TXT_CODE_RCON_WEB_invalidResponse": "無效的 WebRCON 回覆",
+  "TXT_CODE_RCON_WEB_timeout": "WebRCON 回覆逾時；指令可能已執行",
+  "TXT_CODE_RCON_WEB_closed": "WebRCON 在回覆前斷線；指令可能已執行"
 }

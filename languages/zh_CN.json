@@ -3264,5 +3264,16 @@
   "TXT_CODE_file_ownership.invalidId": "实例 runAs 设置中的 {{label}} 无效",
   "TXT_CODE_file_ownership.invalidTarget": "访问被拒绝：无效的所有权目标",
   "TXT_CODE_file_ownership.outsideWorkspace": "访问被拒绝：所有权目标超出实例工作目录",
-  "TXT_CODE_file_ownership.targetChanged": "访问被拒绝：所有权目标在验证过程中发生变化"
+  "TXT_CODE_file_ownership.targetChanged": "访问被拒绝：所有权目标在验证过程中发生变化",
+  "TXT_CODE_RCON_PROTOCOL": "RCON 协议",
+  "TXT_CODE_RCON_SOURCE": "Source RCON",
+  "TXT_CODE_RCON_RUST_WEB": "WebRCON（Rust）",
+  "TXT_CODE_RCON_INVALID_PROTOCOL": "无效的 RCON 协议",
+  "TXT_CODE_RCON_WEB_invalidTarget": "无效的 WebRCON 主机或端口",
+  "TXT_CODE_RCON_WEB_missingPassword": "必须设置 WebRCON 密码",
+  "TXT_CODE_RCON_WEB_connect": "无法连接到 WebRCON",
+  "TXT_CODE_RCON_WEB_handshake": "WebRCON 连接被拒绝；请检查密码和协议",
+  "TXT_CODE_RCON_WEB_invalidResponse": "无效的 WebRCON 响应",
+  "TXT_CODE_RCON_WEB_timeout": "WebRCON 响应超时；命令可能已执行",
+  "TXT_CODE_RCON_WEB_closed": "WebRCON 在回复前断开；命令可能已执行"
 }

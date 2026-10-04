@@ -157,6 +157,13 @@ export default class Instance extends EventEmitter {
 
   // Pass in instance configuration, loosely and dynamically set configuration items for instance parameters
   parameters(cfg: any, persistence = true) {
+    if (
+      cfg?.rconProtocol != null &&
+      cfg.rconProtocol !== "source" &&
+      cfg.rconProtocol !== "rust-web"
+    )
+      throw new Error($t("TXT_CODE_RCON_INVALID_PROTOCOL"));
+
     // If the instance type changes, default commands and lifecycle events must be reset
     if (cfg?.type && cfg?.type != this.config.type) {
       if (!this.isStoppedOrBusy())
@@ -168,6 +175,12 @@ export default class Instance extends EventEmitter {
     if (cfg?.enableRcon != null && cfg?.enableRcon !== this.config.enableRcon) {
       if (!this.isStoppedOrBusy()) throw new Error($t("TXT_CODE_bdfa3457"));
       configureEntityParams(this.config, cfg, "enableRcon", Boolean);
+      this.forceExec(new FunctionDispatcher());
+    }
+
+    if (cfg?.rconProtocol != null && cfg.rconProtocol !== this.config.rconProtocol) {
+      if (!this.isStoppedOrBusy()) throw new Error($t("TXT_CODE_bdfa3457"));
+      this.config.rconProtocol = cfg.rconProtocol;
       this.forceExec(new FunctionDispatcher());
     }
 

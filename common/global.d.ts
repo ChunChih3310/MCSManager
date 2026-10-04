@@ -21,8 +21,9 @@ declare global {
     category: number;
     basePort: number;
 
-    // Steam RCON
+    // RCON
     enableRcon?: boolean;
+    rconProtocol?: "source" | "rust-web";
     rconPassword?: string;
     rconPort?: number;
     rconIp?: string;
