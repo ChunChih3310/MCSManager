@@ -206,11 +206,8 @@ export class QuickInstallTask extends AsyncTask {
       logger.info(
         t("TXT_CODE_e5ba712d"),
         this.instance.config.nickname,
-        this.instance.instanceUuid,
-        "URL:",
-        this.targetLink
+        this.instance.instanceUuid
       );
-      logger.info(t("TXT_CODE_ac225d07") + JSON.stringify(config));
 
       this.instance.resetConfigWithoutDocker();
       this.instance.parameters(config, true);
