@@ -234,6 +234,24 @@ describe("Rust WebRCON client", () => {
     ).rejects.toMatchObject({ code: "invalidTarget" });
   });
 
+  it("defensively validates targets before opening a WebSocket", async () => {
+    const port = await listen();
+    const connection = vi.fn();
+    server!.on("connection", connection);
+    for (const patch of [
+      { host: "http://127.0.0.1" },
+      { host: "999.999.999.999" },
+      { port: 0 },
+      { password: "" },
+      { password: "secret\ud800" }
+    ]) {
+      await expect(
+        executeWebRcon({ host: "127.0.0.1", port, password: "secret", command: "status", ...patch })
+      ).rejects.toBeInstanceOf(WebRconError);
+    }
+    expect(connection).not.toHaveBeenCalled();
+  });
+
   it("prints the command result through the instance console", async () => {
     const port = await listen();
     server!.on("connection", (socket) =>

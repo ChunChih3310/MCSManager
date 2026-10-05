@@ -352,6 +352,42 @@ describe("WebRCON configuration authorization", () => {
     expect(inst.config.rconProtocol).toBe("rust-web");
     expect(() => InstanceSubsystem.createInstance({ rconProtocol: "rust-web" })).toThrow();
   });
+
+  it("rejects invalid targets on the privileged RPC without persisting other changes", async () => {
+    const { inst, uuid } = createInstance({ nickname: "rcon-validation" });
+    const configPath = path.join(tmpDir, "data", "InstanceConfig", `${uuid}.json`);
+    const update = (config: Record<string, unknown>) =>
+      invoke("instance/update_rcon", {
+        instanceUuid: uuid,
+        config,
+        allowWebRconConfiguration: true
+      }).socket;
+    const beforeTransition = await fs.readFile(configPath, "utf8");
+    expect(
+      packetsFor(
+        update({ rconProtocol: "rust-web", ...target, rconIp: "server/path" }),
+        "instance/update_rcon"
+      )[0].status
+    ).toBe(500);
+    expect(await fs.readFile(configPath, "utf8")).toBe(beforeTransition);
+    expect(inst.config.rconProtocol).toBe("source");
+
+    expect(
+      packetsFor(update({ rconProtocol: "rust-web", ...target }), "instance/update_rcon")[0].status
+    ).toBe(200);
+    const saved = await fs.readFile(configPath, "utf8");
+    const config = JSON.parse(JSON.stringify(inst.config));
+    for (const patch of [{ rconIp: "http://127.0.0.1" }, { rconPort: 0 }, { rconPassword: "" }]) {
+      expect(
+        packetsFor(update({ nickname: "must-not-persist", ...patch }), "instance/update_rcon")[0]
+          .status
+      ).toBe(500);
+      expect(inst.config).toEqual(config);
+      expect(await fs.readFile(configPath, "utf8")).toBe(saved);
+    }
+    expect(packetsFor(update({ rconPort: 28017 }), "instance/update_rcon")[0].status).toBe(200);
+    expect(JSON.parse(await fs.readFile(configPath, "utf8")).rconPort).toBe(28017);
+  });
 });
 
 describe("Docker instance lifecycle (real)", () => {

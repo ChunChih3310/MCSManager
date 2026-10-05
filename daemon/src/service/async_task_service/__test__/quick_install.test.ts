@@ -1,4 +1,7 @@
 import fs from "fs-extra";
+import os from "os";
+import path from "path";
+import { Readable } from "stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type Instance from "../../../entity/instance/instance";
 import { QuickInstallTask } from "../quick_install";
@@ -6,8 +9,10 @@ import { QuickInstallTask } from "../quick_install";
 const mocks = vi.hoisted(() => ({
   info: vi.fn(),
   error: vi.fn(),
-  readFile: vi.fn()
+  readFile: vi.fn(),
+  download: vi.fn()
 }));
+vi.mock("axios", () => ({ default: mocks.download }));
 vi.mock("../../log", () => ({ default: { info: mocks.info, error: mocks.error } }));
 vi.mock("../../file_router_service", () => ({
   getFileManager: () => ({
@@ -31,10 +36,56 @@ beforeEach(() => {
   mocks.info.mockReset();
   mocks.error.mockReset();
   mocks.readFile.mockReset();
+  mocks.download.mockReset();
 });
 afterEach(() => vi.restoreAllMocks());
 
 describe("quick install config logging", () => {
+  it("does not print a credential-bearing download URL after a successful download", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mcsm-quick-install-log-"));
+    const url = "https://user:url-password@example.invalid/server.jar?token=download-secret";
+    const instance = {
+      instanceUuid: "download-test",
+      config: { nickname: "test server", processType: "general", updateCommand: "" },
+      absoluteCwdPath: () => directory,
+      print: vi.fn(),
+      println: vi.fn(),
+      status: vi.fn(),
+      resetConfigWithoutDocker: vi.fn(),
+      parameters: vi.fn()
+    };
+    mocks.download.mockResolvedValue({
+      data: Readable.from([Buffer.from("downloaded content")]),
+      headers: { "content-length": "18" }
+    });
+    try {
+      const task = new QuickInstallTask(
+        "test server",
+        url,
+        undefined,
+        instance as unknown as Instance
+      );
+      await task.start();
+      await task.wait();
+      expect(mocks.download).toHaveBeenCalledWith(expect.objectContaining({ url }));
+      expect(await fs.readFile(path.join(directory, "server.jar"), "utf8")).toBe(
+        "downloaded content"
+      );
+      expect(instance.println).toHaveBeenCalledWith("INFO", "TXT_CODE_b135e9bd 100%");
+      const output = JSON.stringify([
+        ...instance.print.mock.calls,
+        ...instance.println.mock.calls,
+        ...mocks.info.mock.calls,
+        ...mocks.error.mock.calls
+      ]);
+      for (const secret of [url, "url-password", "download-secret"])
+        expect(output).not.toContain(secret);
+      expect(mocks.error).not.toHaveBeenCalled();
+    } finally {
+      await fs.remove(directory);
+    }
+  });
+
   it.each(["build parameters", "archive preset"])(
     "applies %s without logging passwords, environment values or commands",
     async (source) => {

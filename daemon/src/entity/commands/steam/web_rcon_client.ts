@@ -1,25 +1,7 @@
-import { isIP } from "net";
 import WebSocket from "ws";
+import { validateWebRconTarget, WebRconError } from "../../../common/web_rcon";
 
-export type WebRconErrorCode =
-  | "invalidTarget"
-  | "missingPassword"
-  | "connect"
-  | "connectionError"
-  | "handshake"
-  | "invalidResponse"
-  | "timeout"
-  | "sendFailed"
-  | "closed";
-
-export class WebRconError extends Error {
-  constructor(
-    public readonly code: WebRconErrorCode,
-    public readonly writeConfirmed = false
-  ) {
-    super(code);
-  }
-}
+export { WebRconError, type WebRconErrorCode } from "../../../common/web_rcon";
 
 interface WebRconOptions {
   host: string;
@@ -32,23 +14,6 @@ interface WebRconOptions {
 
 const IDENTIFIER = 1001;
 
-function targetUrl(host: string, port: number, password: string) {
-  const address = host.trim() || "localhost";
-  const bareAddress =
-    address.startsWith("[") && address.endsWith("]") ? address.slice(1, -1) : address;
-  const ipv6 = isIP(bareAddress) === 6;
-  if (
-    (!ipv6 && !/^[A-Za-z0-9_.-]+$/.test(address)) ||
-    address.length > 253 ||
-    !Number.isInteger(port) ||
-    port < 1 ||
-    port > 65535
-  )
-    throw new WebRconError("invalidTarget");
-  if (!password) throw new WebRconError("missingPassword");
-  return `ws://${ipv6 ? `[${bareAddress}]` : address}:${port}/${encodeURIComponent(password)}`;
-}
-
 export async function executeWebRcon({
   host,
   port,
@@ -57,7 +22,7 @@ export async function executeWebRcon({
   connectTimeoutMs = 6000,
   responseTimeoutMs = 10000
 }: WebRconOptions): Promise<string> {
-  const url = targetUrl(host, port, password);
+  const url = validateWebRconTarget(host, port, password);
 
   return new Promise((resolve, reject) => {
     let socket: WebSocket;

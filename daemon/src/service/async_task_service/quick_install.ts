@@ -157,7 +157,7 @@ export class QuickInstallTask extends AsyncTask {
 
     this.downloadProgress.percentage = 100;
     this.downloadProgress.downloadedBytes = this.downloadProgress.totalBytes;
-    this.instance.println("INFO", `Download "${this.targetLink}" success!!!`);
+    this.instance.println("INFO", `${t("TXT_CODE_b135e9bd")} 100%`);
   }
 
   async onStart() {
@@ -210,6 +210,7 @@ export class QuickInstallTask extends AsyncTask {
       );
 
       this.instance.resetConfigWithoutDocker();
+      // Preset metadata and archive configs are administrator-trusted inputs, not tenant patches.
       this.instance.parameters(config, true);
 
       this.instance.println("INFO", $t("TXT_CODE_4eccdde8"));

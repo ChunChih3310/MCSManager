@@ -20,6 +20,7 @@ import { configureEntityParams } from "mcsmanager-common";
 import path from "path";
 import { CircularBuffer } from "../../common/string_cache";
 import StorageSubsystem from "../../common/system_storage";
+import { validateWebRconTarget, WebRconError } from "../../common/web_rcon";
 import { STEAM_CMD_PATH } from "../../const";
 import { $t } from "../../i18n";
 import javaManager from "../../service/java_manager";
@@ -165,16 +166,35 @@ export default class Instance extends EventEmitter {
       throw new Error($t("TXT_CODE_RCON_INVALID_PROTOCOL"));
 
     if (cfg?.rconProtocol === "rust-web" && this.config.rconProtocol !== "rust-web") {
-      if (
-        typeof cfg.rconIp !== "string" ||
-        !cfg.rconIp.trim() ||
-        typeof cfg.rconPassword !== "string" ||
-        !cfg.rconPassword ||
-        !Number.isInteger(cfg.rconPort) ||
-        cfg.rconPort < 1 ||
-        cfg.rconPort > 65535
-      )
+      if (cfg.rconIp == null || cfg.rconPassword == null || cfg.rconPort == null)
         throw new Error($t("TXT_CODE_RCON_WEB_completeTarget"));
+    }
+
+    const resultingProtocol = cfg?.rconProtocol ?? this.config.rconProtocol;
+    const targetChanged =
+      cfg?.rconProtocol != null ||
+      cfg?.rconIp != null ||
+      cfg?.rconPort != null ||
+      cfg?.rconPassword != null;
+    const enablingRcon = cfg?.enableRcon != null && Boolean(cfg.enableRcon);
+    // Validate the merged target before any mutation. Disabling a broken legacy target is allowed.
+    if (resultingProtocol === "rust-web" && (targetChanged || enablingRcon)) {
+      try {
+        validateWebRconTarget(
+          cfg.rconIp ?? this.config.rconIp,
+          cfg.rconPort ?? this.config.rconPort,
+          cfg.rconPassword ?? this.config.rconPassword
+        );
+      } catch (error) {
+        if (!(error instanceof WebRconError)) throw error;
+        throw new Error(
+          $t(
+            error.code === "missingPassword"
+              ? "TXT_CODE_RCON_WEB_missingPassword"
+              : "TXT_CODE_RCON_WEB_invalidTarget"
+          )
+        );
+      }
     }
 
     // If the instance type changes, default commands and lifecycle events must be reset

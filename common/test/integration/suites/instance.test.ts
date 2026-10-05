@@ -241,6 +241,10 @@ describe("instance: lifecycle + config (bare, no network)", () => {
       rconPassword: "integration-only",
       enableRcon: false
     };
+    const sourceConfig = await getConfig();
+    const invalidTransition = await adminUpdate({ ...webConfig, rconIp: "http://127.0.0.1" });
+    expect(invalidTransition.httpStatus).not.toBe(200);
+    expect(await getConfig()).toEqual(sourceConfig);
     expect((await adminUpdate(webConfig)).httpStatus).toBe(200);
     // Assigned owners may intentionally read their own credentials for external clients.
     expect(await getConfig()).toMatchObject(webConfig);
@@ -292,6 +296,24 @@ describe("instance: lifecycle + config (bare, no network)", () => {
     });
     expect(adminRoute.httpStatus).toBe(200);
     expect((await getConfig()).rconPort).toBe(28017);
+
+    const savedWebConfig = await getConfig();
+    for (const patch of [{ rconPort: 0 }, { rconPassword: "" }, { rconIp: "server/path" }]) {
+      const rejected = await adminUpdate({ ...patch, oe: "must-not-persist" });
+      expect(rejected.httpStatus).not.toBe(200);
+      expect(await getConfig()).toEqual(savedWebConfig);
+      expect(JSON.stringify(rejected.raw)).not.toContain(webConfig.rconPassword);
+    }
+    const invalidAdminRoute = await requestPanel({
+      method: "PUT",
+      path: "/instance",
+      cookie: world.admin.cookie!,
+      token: world.admin.token!,
+      query: { daemonId: di(), uuid: iu() },
+      body: { rconIp: "http://127.0.0.1", nickname: "must-not-persist" }
+    });
+    expect(invalidAdminRoute.httpStatus).not.toBe(200);
+    expect(await getConfig()).toEqual(savedWebConfig);
 
     expect((await adminUpdate({ rconProtocol: "source" })).httpStatus).toBe(200);
     expect((await update({ rconIp: "", rconPort: 0, rconPassword: "" })).httpStatus).toBe(200);

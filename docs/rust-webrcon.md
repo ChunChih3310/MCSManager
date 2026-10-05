@@ -12,6 +12,10 @@ When switching from Source RCON to Rust WebRCON, explicitly submit a nonempty ho
 
 RCON fields are defined centrally in `common/src/rcon_config.ts` and inherited by the instance configuration type. Its exhaustive field map ensures that adding a field requires updating the authorization classification. Runtime input remains untrusted and is validated separately by the daemon.
 
+The daemon uses the same local target validation before saving WebRCON settings and before connecting. This covers both protocol transitions and partial updates to an existing WebRCON target, without DNS lookups or network requests. Invalid targets are rejected before any instance settings are changed. Disabling RCON or changing unrelated settings remains possible for an invalid legacy target; enabling it requires a valid target.
+
+Preset installation is a separate administrator-delegated operation: the configured marketplace source, package URLs and archive configuration are trusted administrative inputs. Assigned owners with preset-install permission can select those packages, but cannot supply arbitrary package configuration or URLs through that route. Preset maintainers can set commands, credentials and WebRCON destinations, so only trusted sources and packages should be enabled. Making these inputs tenant-controlled would require a new authorization boundary; it must not bypass the privileged RCON update RPC.
+
 For a Docker instance on the same host as the daemon, map the RCON TCP port only to the host loopback address, for example `127.0.0.1:28016:28016/tcp`. Do not forward the RCON port on the router or expose it publicly: Rust WebRCON uses unencrypted WebSocket (`ws://`) and authenticates using the password in the URL path.
 
 Use a long, randomly generated alphanumeric password. URL encoding of special characters is covered by client tests, but authentication with such passwords has not been verified against a real Rust server.
