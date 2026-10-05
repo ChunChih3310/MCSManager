@@ -1,4 +1,5 @@
-import { AddressInfo } from "net";
+import { createHash } from "crypto";
+import { AddressInfo, createServer, Socket } from "net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
 import { executeWebRcon, WebRconError } from "../web_rcon_client";
@@ -60,6 +61,41 @@ describe("Rust WebRCON client", () => {
     });
     await executeWebRcon({ host: "127.0.0.1", port, password: "p/a#b", command: "status" });
     expect(path).toBe("/p%2Fa%23b");
+  });
+
+  it("releases the connection when a server does not acknowledge WebSocket close", async () => {
+    let client: Socket | undefined;
+    const rawServer = createServer((socket) => {
+      client = socket;
+      socket.once("data", (request) => {
+        const key = request.toString().match(/^Sec-WebSocket-Key:\s*(.+)\r?$/mi)?.[1];
+        if (!key) return socket.destroy();
+        const accept = createHash("sha1")
+          .update(`${key.trim()}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+          .digest("base64");
+        socket.write(
+          `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`
+        );
+        socket.once("data", () => {
+          const response = Buffer.from(JSON.stringify({ Identifier: 1001, Message: "ok" }));
+          socket.write(Buffer.concat([Buffer.from([0x81, response.length]), response]));
+          // A raw TCP peer never sends a WebSocket close response.
+        });
+      });
+    });
+    await new Promise<void>((resolve) => rawServer.listen(0, "127.0.0.1", resolve));
+    try {
+      const port = (rawServer.address() as AddressInfo).port;
+      expect(
+        await executeWebRcon({ host: "127.0.0.1", port, password: "secret", command: "status" })
+      ).toBe("ok");
+      for (let i = 0; i < 20 && !client?.destroyed; i++)
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(client?.destroyed).toBe(true);
+    } finally {
+      client?.destroy();
+      await new Promise<void>((resolve) => rawServer.close(() => resolve()));
+    }
   });
 
   it("rejects malformed replies", async () => {

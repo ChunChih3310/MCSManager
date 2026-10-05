@@ -65,8 +65,7 @@ export async function executeWebRcon({
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (error) socket.terminate();
-      else socket.close();
+      socket.terminate();
       if (error) reject(error);
       else resolve(response ?? "");
     };
