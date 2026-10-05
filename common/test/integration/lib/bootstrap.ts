@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { randomBytes } from "node:crypto";
+import { createServer, type AddressInfo } from "node:net";
 import { type ChildProcess } from "node:child_process";
 import { copySync } from "fs-extra";
 import { world, saveState, writeFindings, REPO, RUNTIME_FILE } from "./world";
@@ -18,6 +20,26 @@ export interface Runtime {
   panelProc?: ChildProcess;
 }
 
+async function testPorts(): Promise<number[]> {
+  const servers = [createServer(), createServer()];
+  try {
+    await Promise.all(
+      servers.map(
+        (server) =>
+          new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(0, "127.0.0.1", resolve);
+          })
+      )
+    );
+    return servers.map((server) => (server.address() as AddressInfo).port);
+  } finally {
+    await Promise.all(
+      servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve())))
+    );
+  }
+}
+
 // Boot a real daemon + panel in an isolated tmp workspace.
 // daemon first; after 5s panel with --unsafe-integration-test-mode=<key>.
 // lib binaries + market_cache are copied because all data/lib paths are
@@ -25,11 +47,26 @@ export interface Runtime {
 // daemon at ../daemon/data/Config/global.json, so the sibling-dir layout
 // (workDir/{daemon,panel}) is load-bearing.
 export async function bootRuntime(): Promise<Runtime> {
+  const [daemonPort, panelPort] = await testPorts();
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "mcsm-it-"));
   const daemonDir = path.join(workDir, "daemon");
   const panelDir = path.join(workDir, "panel");
   fs.mkdirSync(path.join(daemonDir, "lib"), { recursive: true });
   fs.mkdirSync(path.join(panelDir, "data"), { recursive: true });
+  fs.mkdirSync(path.join(daemonDir, "data/Config"), { recursive: true });
+  fs.mkdirSync(path.join(panelDir, "data/SystemConfig"), { recursive: true });
+  fs.writeFileSync(
+    path.join(daemonDir, "data/Config/global.json"),
+    JSON.stringify({ port: daemonPort, ip: "127.0.0.1", key: randomBytes(32).toString("hex") }),
+    { mode: 0o600 }
+  );
+  fs.writeFileSync(
+    path.join(panelDir, "data/SystemConfig/config.json"),
+    JSON.stringify({ httpPort: panelPort, httpIp: "127.0.0.1" }),
+    { mode: 0o600 }
+  );
+  world.panelUrl = `http://127.0.0.1:${panelPort}`;
+  world.daemonHttpUrl = `http://127.0.0.1:${daemonPort}`;
 
   // Copy daemon native binaries (file_zip / pty) — cwd-relative at runtime.
   copySync(path.join(REPO, "daemon/lib"), path.join(daemonDir, "lib"));
@@ -46,7 +83,7 @@ export async function bootRuntime(): Promise<Runtime> {
     logFile: path.join(workDir, "daemon.log")
   });
 
-  // daemon writes data/Config/global.json on first boot
+  // The isolated daemon configuration is pre-seeded above.
   await waitFor(() => fs.existsSync(path.join(daemonDir, "data/Config/global.json")), {
     timeout: 20000,
     msg: "daemon global.json"
@@ -57,8 +94,8 @@ export async function bootRuntime(): Promise<Runtime> {
 
   const key = "mcsm-it-" + Math.random().toString(36).slice(2, 14);
   world.key = key;
-  const panelUrl = "http://127.0.0.1:23333";
-  const daemonHttpUrl = "http://127.0.0.1:24444";
+  const panelUrl = world.panelUrl;
+  const daemonHttpUrl = world.daemonHttpUrl;
 
   // 2) start panel with the integration-test flag
   const panelProc = spawnApp({

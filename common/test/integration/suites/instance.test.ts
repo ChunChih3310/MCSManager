@@ -185,18 +185,26 @@ describe("instance: lifecycle + config (bare, no network)", () => {
     expect(String(g.data?.config?.stopCommand || "")).toBe("exit");
   });
 
-  it("persists a valid RCON protocol and rejects unknown protocols", async () => {
-    const update = (rconProtocol: string) => requestPanel({
-      method: "PUT",
-      path: "/protected_instance/instance_update",
-      cookie: u1().cookie,
-      token: u1().token,
-      query: { daemonId: di(), uuid: iu() },
-      body: { rconProtocol }
-    });
-    expect((await update("rust-web")).httpStatus).toBe(200);
-
-    const getProtocol = async () => {
+  it("restricts WebRCON configuration to admins while preserving normal Source RCON updates", async () => {
+    const update = (body: Record<string, unknown>) =>
+      requestPanel({
+        method: "PUT",
+        path: "/protected_instance/instance_update",
+        cookie: u1().cookie,
+        token: u1().token,
+        query: { daemonId: di(), uuid: iu() },
+        body
+      });
+    const adminUpdate = (body: Record<string, unknown>) =>
+      requestPanel({
+        method: "PUT",
+        path: "/protected_instance/instance_update",
+        cookie: world.admin.cookie!,
+        token: world.admin.token!,
+        query: { daemonId: di(), uuid: iu() },
+        body
+      });
+    const getConfig = async () => {
       const result = await requestPanel({
         method: "GET",
         path: "/instance",
@@ -204,12 +212,50 @@ describe("instance: lifecycle + config (bare, no network)", () => {
         token: u1().token,
         query: { daemonId: di(), uuid: iu() }
       });
-      return result.data?.config?.rconProtocol;
+      return result.data?.config;
     };
-    expect(await getProtocol()).toBe("rust-web");
-    expect((await update("ws://localhost")).httpStatus).not.toBe(200);
-    expect(await getProtocol()).toBe("rust-web");
-    expect((await update("source")).httpStatus).toBe(200);
+
+    expect((await update({ rconProtocol: "source", rconPort: 28016 })).httpStatus).toBe(200);
+    const denied = await update({ rconProtocol: "rust-web", restrictWebRconConfiguration: false });
+    expect(denied.httpStatus).not.toBe(200);
+    expect(JSON.stringify(denied.raw)).toContain("Only administrators can configure Rust WebRCON");
+    expect((await getConfig()).rconProtocol).toBe("source");
+
+    const promoteAdmin = await requestPanel({
+      method: "PUT",
+      path: "/auth",
+      key: world.key,
+      body: { uuid: world.admin.uuid, config: { permission: 10 } }
+    });
+    expect(promoteAdmin.httpStatus).toBe(200);
+    const webConfig = {
+      rconProtocol: "rust-web",
+      rconIp: "127.0.0.1",
+      rconPort: 28016,
+      rconPassword: "integration-only",
+      enableRcon: false
+    };
+    expect((await adminUpdate(webConfig)).httpStatus).toBe(200);
+    expect(await getConfig()).toMatchObject(webConfig);
+
+    // Omitting the protocol must not let an owner retarget an existing WebRCON instance.
+    for (const body of [
+      { rconIp: "localhost" },
+      { rconPort: 80 },
+      { rconPassword: "changed" },
+      { enableRcon: true },
+      { rconProtocol: "source" }
+    ]) {
+      const rejected = await update(body);
+      expect(rejected.httpStatus).not.toBe(200);
+      expect(JSON.stringify(rejected.raw)).toContain("Only administrators can configure Rust WebRCON");
+    }
+    expect((await update({ oe: "utf-8" })).httpStatus).toBe(200);
+    expect((await update({ rconProtocol: "ws://localhost" })).httpStatus).not.toBe(200);
+    expect(await getConfig()).toMatchObject(webConfig);
+
+    expect((await adminUpdate({ rconProtocol: "source" })).httpStatus).toBe(200);
+    expect((await update({ rconIp: "", rconPort: 0, rconPassword: "" })).httpStatus).toBe(200);
   });
 
   it("normal user cannot change startCommand on a non-docker instance; admin can", async () => {

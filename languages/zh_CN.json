@@ -3275,5 +3275,8 @@
   "TXT_CODE_RCON_WEB_handshake": "WebRCON 连接被拒绝；请检查密码和协议",
   "TXT_CODE_RCON_WEB_invalidResponse": "无效的 WebRCON 响应",
   "TXT_CODE_RCON_WEB_timeout": "WebRCON 响应超时；命令可能已执行",
+  "TXT_CODE_RCON_WEB_sendFailed": "WebRCON 无法发送命令；无法确认是否送达",
+  "TXT_CODE_RCON_WEB_connectionError": "WebRCON 连接发生错误；命令可能已执行",
+  "TXT_CODE_RCON_WEB_adminOnly": "仅管理员可以配置 Rust WebRCON",
   "TXT_CODE_RCON_WEB_closed": "WebRCON 在回复前断开；命令可能已执行"
 }

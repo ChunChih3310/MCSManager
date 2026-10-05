@@ -3275,5 +3275,8 @@
   "TXT_CODE_RCON_WEB_handshake": "WebRCON connection rejected; check the password and protocol",
   "TXT_CODE_RCON_WEB_invalidResponse": "Invalid WebRCON response",
   "TXT_CODE_RCON_WEB_timeout": "No WebRCON reply before timeout; the command may have run",
+  "TXT_CODE_RCON_WEB_sendFailed": "WebRCON could not send the command; delivery is unconfirmed",
+  "TXT_CODE_RCON_WEB_connectionError": "WebRCON connection failed; the command may have run",
+  "TXT_CODE_RCON_WEB_adminOnly": "Only administrators can configure Rust WebRCON",
   "TXT_CODE_RCON_WEB_closed": "WebRCON disconnected before replying; the command may have run"
 }

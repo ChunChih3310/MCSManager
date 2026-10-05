@@ -187,7 +187,8 @@ const btns = computed(() => {
         rconSettingsDialog.value?.openDialog();
       },
       condition: () =>
-        instanceInfo.value?.config.type.includes(TYPE_STEAM_SERVER_UNIVERSAL) ?? false
+        (instanceInfo.value?.config.type.includes(TYPE_STEAM_SERVER_UNIVERSAL) ?? false) &&
+        (isAdmin.value || instanceInfo.value?.config.rconProtocol !== "rust-web")
     },
 
     {

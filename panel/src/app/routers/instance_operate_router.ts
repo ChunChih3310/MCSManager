@@ -474,7 +474,8 @@ router.put(
       await updateInstanceWithAudit(ctx, daemonId || "", instanceUuid || "", () =>
         new RemoteRequest(remoteService).request("instance/update", {
           instanceUuid,
-          config: finalConfig
+          config: finalConfig,
+          restrictWebRconConfiguration: !isTopPermission
         })
       );
       ctx.body = true;

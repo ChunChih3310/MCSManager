@@ -16,6 +16,10 @@ function errorMessage(error: WebRconError) {
       return $t("TXT_CODE_RCON_WEB_invalidResponse");
     case "timeout":
       return $t("TXT_CODE_RCON_WEB_timeout");
+    case "sendFailed":
+      return $t("TXT_CODE_RCON_WEB_sendFailed");
+    case "connectionError":
+      return $t("TXT_CODE_RCON_WEB_connectionError");
     case "closed":
       return $t("TXT_CODE_RCON_WEB_closed");
     default:
@@ -50,7 +54,7 @@ export default class WebRconCommand extends InstanceCommand {
       if (
         error instanceof WebRconError &&
         error.code === "closed" &&
-        error.commandSent &&
+        error.writeConfirmed &&
         instance.status() === Instance.STATUS_STOPPING
       )
         return;

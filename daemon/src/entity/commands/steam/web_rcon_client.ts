@@ -5,13 +5,18 @@ export type WebRconErrorCode =
   | "invalidTarget"
   | "missingPassword"
   | "connect"
+  | "connectionError"
   | "handshake"
   | "invalidResponse"
   | "timeout"
+  | "sendFailed"
   | "closed";
 
 export class WebRconError extends Error {
-  constructor(public readonly code: WebRconErrorCode, public readonly commandSent = false) {
+  constructor(
+    public readonly code: WebRconErrorCode,
+    public readonly writeConfirmed = false
+  ) {
     super(code);
   }
 }
@@ -29,9 +34,8 @@ const IDENTIFIER = 1001;
 
 function targetUrl(host: string, port: number, password: string) {
   const address = host.trim() || "localhost";
-  const bareAddress = address.startsWith("[") && address.endsWith("]")
-    ? address.slice(1, -1)
-    : address;
+  const bareAddress =
+    address.startsWith("[") && address.endsWith("]") ? address.slice(1, -1) : address;
   const ipv6 = isIP(bareAddress) === 6;
   if (
     (!ipv6 && !/^[A-Za-z0-9_.-]+$/.test(address)) ||
@@ -59,7 +63,8 @@ export async function executeWebRcon({
     let socket: WebSocket;
     let timer: NodeJS.Timeout;
     let settled = false;
-    let commandSent = false;
+    let writeConfirmed = false;
+    let opened = false;
 
     const finish = (error?: WebRconError, response?: string) => {
       if (settled) return;
@@ -82,27 +87,39 @@ export async function executeWebRcon({
 
     timer = setTimeout(() => finish(new WebRconError("connect")), connectTimeoutMs);
     socket.on("open", () => {
+      opened = true;
       clearTimeout(timer);
-      timer = setTimeout(() => finish(new WebRconError("timeout", commandSent)), responseTimeoutMs);
-      commandSent = true;
-      socket.send(
-        JSON.stringify({ Identifier: IDENTIFIER, Message: command, Name: "WebRcon" }),
-        (error) => {
-          if (error) finish(new WebRconError("closed", commandSent));
-        }
+      timer = setTimeout(
+        () => finish(new WebRconError("timeout", writeConfirmed)),
+        responseTimeoutMs
       );
+      try {
+        socket.send(
+          JSON.stringify({ Identifier: IDENTIFIER, Message: command, Name: "WebRcon" }),
+          (error) => {
+            if (error) {
+              finish(new WebRconError("sendFailed"));
+              return;
+            }
+            // This confirms the local write, not execution by Rust.
+            writeConfirmed = true;
+          }
+        );
+      } catch {
+        finish(new WebRconError("sendFailed"));
+      }
     });
     socket.on("message", (raw) => {
       let packet: any;
       try {
         packet = JSON.parse(raw.toString());
       } catch {
-        finish(new WebRconError("invalidResponse", commandSent));
+        finish(new WebRconError("invalidResponse", writeConfirmed));
         return;
       }
       if (packet?.Identifier !== IDENTIFIER) return;
       if (typeof packet.Message !== "string") {
-        finish(new WebRconError("invalidResponse", commandSent));
+        finish(new WebRconError("invalidResponse", writeConfirmed));
         return;
       }
       finish(undefined, packet.Message);
@@ -112,8 +129,8 @@ export async function executeWebRcon({
       finish(new WebRconError("handshake"));
     });
     socket.on("error", () =>
-      finish(new WebRconError(commandSent ? "closed" : "connect", commandSent))
+      finish(new WebRconError(opened ? "connectionError" : "connect", writeConfirmed))
     );
-    socket.on("close", () => finish(new WebRconError("closed", commandSent)));
+    socket.on("close", () => finish(new WebRconError("closed", writeConfirmed)));
   });
 }

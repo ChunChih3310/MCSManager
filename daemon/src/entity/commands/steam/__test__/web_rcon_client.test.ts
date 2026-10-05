@@ -1,7 +1,9 @@
 import { createHash } from "crypto";
-import { AddressInfo, createServer, Socket } from "net";
+import { createServer } from "http";
+import { AddressInfo } from "net";
+import { Duplex } from "stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { WebSocketServer } from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 import { executeWebRcon, WebRconError } from "../web_rcon_client";
 import WebRconCommand from "../web_rcon_command";
 import type Instance from "../../../instance/instance";
@@ -64,24 +66,34 @@ describe("Rust WebRCON client", () => {
   });
 
   it("releases the connection when a server does not acknowledge WebSocket close", async () => {
-    let client: Socket | undefined;
-    const rawServer = createServer((socket) => {
+    let client: Duplex | undefined;
+    const rawServer = createServer();
+    rawServer.on("upgrade", (request, socket, head) => {
       client = socket;
-      socket.once("data", (request) => {
-        const key = request.toString().match(/^Sec-WebSocket-Key:\s*(.+)\r?$/mi)?.[1];
-        if (!key) return socket.destroy();
-        const accept = createHash("sha1")
-          .update(`${key.trim()}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
-          .digest("base64");
-        socket.write(
-          `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`
-        );
-        socket.once("data", () => {
-          const response = Buffer.from(JSON.stringify({ Identifier: 1001, Message: "ok" }));
-          socket.write(Buffer.concat([Buffer.from([0x81, response.length]), response]));
-          // A raw TCP peer never sends a WebSocket close response.
-        });
+      socket.on("end", () => socket.destroy());
+      const key = request.headers["sec-websocket-key"];
+      if (typeof key !== "string") return socket.destroy();
+      const accept = createHash("sha1")
+        .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+        .digest("base64");
+      socket.write(
+        `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`
+      );
+      const reply = () => {
+        const response = Buffer.from(JSON.stringify({ Identifier: 1001, Message: "ok" }));
+        socket.write(Buffer.concat([Buffer.from([0x81, response.length]), response]));
+        // A raw TCP peer never sends a WebSocket close response.
+      };
+      let replied = false;
+      socket.on("data", () => {
+        if (replied) return;
+        replied = true;
+        reply();
       });
+      if (head.length) {
+        replied = true;
+        reply();
+      }
     });
     await new Promise<void>((resolve) => rawServer.listen(0, "127.0.0.1", resolve));
     try {
@@ -118,7 +130,7 @@ describe("Rust WebRCON client", () => {
         command: "gather.rate dispenser * 2",
         responseTimeoutMs: 40
       })
-    ).rejects.toMatchObject({ code: "timeout", commandSent: true });
+    ).rejects.toMatchObject({ code: "timeout", writeConfirmed: true });
     expect(requests).toBe(1);
   });
 
@@ -131,8 +143,74 @@ describe("Rust WebRCON client", () => {
       password: "secret",
       command: "quit"
     }).catch((reason) => reason as WebRconError);
-    expect(error).toMatchObject({ code: "closed", commandSent: true });
+    expect(error).toMatchObject({ code: "closed", writeConfirmed: true });
     expect(error.message).not.toContain("secret");
+  });
+
+  it("does not hide a failed send while an instance is stopping", async () => {
+    const port = await listen();
+    const send = vi.spyOn(WebSocket.prototype, "send").mockImplementation((...args) => {
+      const callback = args[args.length - 1];
+      if (typeof callback === "function") callback(new Error("write failed"));
+    });
+    try {
+      await expect(
+        executeWebRcon({ host: "127.0.0.1", port, password: "secret", command: "quit" })
+      ).rejects.toMatchObject({ code: "sendFailed", writeConfirmed: false });
+
+      const println = vi.fn();
+      const instance = {
+        config: { rconIp: "127.0.0.1", rconPort: port, rconPassword: "secret" },
+        process: {},
+        print: vi.fn(),
+        println,
+        status: () => 1
+      } as unknown as Instance;
+      await new WebRconCommand().exec(instance, "quit");
+      expect(println).toHaveBeenCalledWith("RCON ERROR", expect.any(String));
+    } finally {
+      send.mockRestore();
+    }
+  });
+
+  it("handles a synchronous send failure without leaving a connection open", async () => {
+    const port = await listen();
+    const send = vi.spyOn(WebSocket.prototype, "send").mockImplementation(() => {
+      throw new Error("write failed");
+    });
+    try {
+      await expect(
+        executeWebRcon({ host: "127.0.0.1", port, password: "secret", command: "quit" })
+      ).rejects.toMatchObject({ code: "sendFailed", writeConfirmed: false });
+    } finally {
+      send.mockRestore();
+    }
+  });
+
+  it("does not hide socket errors after a confirmed write during shutdown", async () => {
+    const port = await listen();
+    const send = vi.spyOn(WebSocket.prototype, "send").mockImplementation(function (
+      this: WebSocket,
+      ...args
+    ) {
+      const callback = args[args.length - 1];
+      if (typeof callback === "function") callback();
+      this.emit("error", new Error("connection failed"));
+    });
+    try {
+      const println = vi.fn();
+      const instance = {
+        config: { rconIp: "127.0.0.1", rconPort: port, rconPassword: "secret" },
+        process: {},
+        print: vi.fn(),
+        println,
+        status: () => 1
+      } as unknown as Instance;
+      await new WebRconCommand().exec(instance, "quit");
+      expect(println).toHaveBeenCalledWith("RCON ERROR", expect.any(String));
+    } finally {
+      send.mockRestore();
+    }
   });
 
   it("rejects a failed handshake without exposing the password", async () => {

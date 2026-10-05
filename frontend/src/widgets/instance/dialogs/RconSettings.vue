@@ -5,8 +5,10 @@ import type { InstanceDetail } from "@/types";
 import { updateInstanceConfig } from "@/services/apis/instance";
 import { message, type FormInstance } from "ant-design-vue";
 import { reportErrorMsg } from "@/tools/validator";
+import { useAppStateStore } from "@/stores/useAppStateStore";
 
 const formRef = ref<FormInstance>();
+const { isAdmin } = useAppStateStore();
 
 const props = defineProps<{
   instanceInfo?: InstanceDetail;
@@ -94,7 +96,9 @@ defineExpose({
           <a-typography-title :level="5">{{ t("TXT_CODE_RCON_PROTOCOL") }}</a-typography-title>
           <a-select v-model:value="formData.rconProtocol">
             <a-select-option value="source">{{ t("TXT_CODE_RCON_SOURCE") }}</a-select-option>
-            <a-select-option value="rust-web">{{ t("TXT_CODE_RCON_RUST_WEB") }}</a-select-option>
+            <a-select-option v-if="isAdmin" value="rust-web">
+              {{ t("TXT_CODE_RCON_RUST_WEB") }}
+            </a-select-option>
           </a-select>
         </a-form-item>
 
@@ -123,7 +127,10 @@ defineExpose({
               {{ t("TXT_CODE_3ae0276b") }}
             </a-typography-text>
           </a-typography-paragraph>
-          <a-input-password v-model:value="formData.rconPassword" :placeholder="t('TXT_CODE_25af3af3')" />
+          <a-input-password
+            v-model:value="formData.rconPassword"
+            :placeholder="t('TXT_CODE_25af3af3')"
+          />
         </a-form-item>
       </a-form>
     </div>

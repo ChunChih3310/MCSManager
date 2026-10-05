@@ -205,7 +205,20 @@ routerApp.on("instance/update", (ctx, data) => {
   const instanceUuid = data.instanceUuid;
   const config = data.config;
   try {
-    InstanceSubsystem.getInstance(instanceUuid)?.parameters(config);
+    const instance = InstanceSubsystem.getInstance(instanceUuid);
+    if (!instance) throw new Error($t("TXT_CODE_3bfb9e04"));
+    // The authenticated panel supplies this restriction from the user's role.
+    // Check the current protocol here so the permission check and update cannot race.
+    if (
+      data.restrictWebRconConfiguration === true &&
+      (config?.rconProtocol === "rust-web" ||
+        (instance.config.rconProtocol === "rust-web" &&
+          ["rconProtocol", "rconIp", "rconPort", "rconPassword", "enableRcon"].some(
+            (key) => config?.[key] != null
+          )))
+    )
+      throw new Error($t("TXT_CODE_RCON_WEB_adminOnly"));
+    instance.parameters(config);
     protocol.msg(ctx, "instance/update", { instanceUuid });
   } catch (err: any) {
     protocol.error(ctx, "instance/update", { instanceUuid: instanceUuid, err: err.message });
