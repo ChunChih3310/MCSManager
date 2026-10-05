@@ -3278,5 +3278,6 @@
   "TXT_CODE_RCON_WEB_sendFailed": "WebRCON could not send the command; delivery is unconfirmed",
   "TXT_CODE_RCON_WEB_connectionError": "WebRCON connection failed; the command may have run",
   "TXT_CODE_RCON_WEB_adminOnly": "Only administrators can configure Rust WebRCON",
+  "TXT_CODE_RCON_WEB_completeTarget": "Switching to Rust WebRCON requires an explicit host, port and password",
   "TXT_CODE_RCON_WEB_closed": "WebRCON disconnected before replying; the command may have run"
 }

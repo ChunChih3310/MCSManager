@@ -8,6 +8,7 @@ import permission from "../middleware/permission";
 import validator from "../middleware/validator";
 import { updateInstanceWithAudit } from "../service/instance_config_audit";
 import { getInstanceNameSafely } from "../service/instance_name_service";
+import { updateInstanceWithRconAuthorization } from "../service/instance_rcon";
 import { checkInstanceAdvancedParams, getAppMarketList } from "../service/instance_service";
 import { getOperationLoggerOperator, operationLogger } from "../service/operation_logger";
 import { getUserPermission, getUserUuid } from "../service/passport_service";
@@ -472,11 +473,12 @@ router.put(
       };
 
       await updateInstanceWithAudit(ctx, daemonId || "", instanceUuid || "", () =>
-        new RemoteRequest(remoteService).request("instance/update", {
-          instanceUuid,
-          config: finalConfig,
-          restrictWebRconConfiguration: !isTopPermission
-        })
+        updateInstanceWithRconAuthorization(
+          remoteService,
+          instanceUuid || "",
+          finalConfig,
+          isTopPermission
+        )
       );
       ctx.body = true;
     } catch (err) {

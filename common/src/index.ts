@@ -24,6 +24,7 @@ export {
 } from "./typecheck";
 
 export { arrayUnique } from "./array";
+export { hasRconConfigUpdate, isWebRconConfigUpdate } from "./rcon_config";
 
 export {
   applyUpgradePackage,

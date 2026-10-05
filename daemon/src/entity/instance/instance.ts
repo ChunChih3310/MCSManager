@@ -164,6 +164,19 @@ export default class Instance extends EventEmitter {
     )
       throw new Error($t("TXT_CODE_RCON_INVALID_PROTOCOL"));
 
+    if (cfg?.rconProtocol === "rust-web" && this.config.rconProtocol !== "rust-web") {
+      if (
+        typeof cfg.rconIp !== "string" ||
+        !cfg.rconIp.trim() ||
+        typeof cfg.rconPassword !== "string" ||
+        !cfg.rconPassword ||
+        !Number.isInteger(cfg.rconPort) ||
+        cfg.rconPort < 1 ||
+        cfg.rconPort > 65535
+      )
+        throw new Error($t("TXT_CODE_RCON_WEB_completeTarget"));
+    }
+
     // If the instance type changes, default commands and lifecycle events must be reset
     if (cfg?.type && cfg?.type != this.config.type) {
       if (!this.isStoppedOrBusy())

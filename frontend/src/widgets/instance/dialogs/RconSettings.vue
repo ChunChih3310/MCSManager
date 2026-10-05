@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive } from "vue";
+import { computed, ref, reactive } from "vue";
 import { t } from "@/lang/i18n";
 import type { InstanceDetail } from "@/types";
 import { updateInstanceConfig } from "@/services/apis/instance";
@@ -17,6 +17,9 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits(["update"]);
+const isReadOnly = computed(
+  () => !isAdmin.value && props.instanceInfo?.config?.rconProtocol === "rust-web"
+);
 const formData = reactive({
   rconIp: "",
   rconPassword: "",
@@ -38,6 +41,7 @@ const openDialog = () => {
 const { execute, isLoading } = updateInstanceConfig();
 
 const submit = async () => {
+  if (isReadOnly.value) return;
   try {
     await formRef.value?.validateFields();
     await execute({
@@ -73,6 +77,7 @@ defineExpose({
     :title="t('TXT_CODE_282b0721')"
     :confirm-loading="isLoading"
     :ok-text="t('TXT_CODE_abfe9512')"
+    :footer="isReadOnly ? null : undefined"
     @ok="submit"
   >
     <div>
@@ -89,14 +94,17 @@ defineExpose({
               {{ t("TXT_CODE_a8839b35") }}
             </a-typography-text>
           </a-typography-paragraph>
-          <a-switch v-model:checked="formData.enableRcon" />
+          <a-switch v-model:checked="formData.enableRcon" :disabled="isReadOnly" />
         </a-form-item>
 
         <a-form-item v-if="formData.enableRcon" name="rconProtocol">
           <a-typography-title :level="5">{{ t("TXT_CODE_RCON_PROTOCOL") }}</a-typography-title>
-          <a-select v-model:value="formData.rconProtocol">
+          <a-select v-model:value="formData.rconProtocol" :disabled="isReadOnly">
             <a-select-option value="source">{{ t("TXT_CODE_RCON_SOURCE") }}</a-select-option>
-            <a-select-option v-if="isAdmin" value="rust-web">
+            <a-select-option
+              v-if="isAdmin || formData.rconProtocol === 'rust-web'"
+              value="rust-web"
+            >
               {{ t("TXT_CODE_RCON_RUST_WEB") }}
             </a-select-option>
           </a-select>
@@ -109,7 +117,11 @@ defineExpose({
               {{ t("TXT_CODE_8e2be926") }}
             </a-typography-text>
           </a-typography-paragraph>
-          <a-input v-model:value="formData.rconIp" :placeholder="t('TXT_CODE_47129a5b')" />
+          <a-input
+            v-model:value="formData.rconIp"
+            :placeholder="t('TXT_CODE_47129a5b')"
+            :readonly="isReadOnly"
+          />
         </a-form-item>
         <a-form-item name="rconPort">
           <a-typography-title :level="5">{{ t("TXT_CODE_890aa44c") }}</a-typography-title>
@@ -118,7 +130,11 @@ defineExpose({
               {{ t("TXT_CODE_a4748cb0") }}
             </a-typography-text>
           </a-typography-paragraph>
-          <a-input v-model:value="formData.rconPort" :placeholder="t('TXT_CODE_e2dc0156')" />
+          <a-input
+            v-model:value="formData.rconPort"
+            :placeholder="t('TXT_CODE_e2dc0156')"
+            :readonly="isReadOnly"
+          />
         </a-form-item>
         <a-form-item name="rconPassword">
           <a-typography-title :level="5">{{ t("TXT_CODE_2880eed4") }}</a-typography-title>
@@ -130,6 +146,7 @@ defineExpose({
           <a-input-password
             v-model:value="formData.rconPassword"
             :placeholder="t('TXT_CODE_25af3af3')"
+            :readonly="isReadOnly"
           />
         </a-form-item>
       </a-form>

@@ -216,7 +216,7 @@ describe("instance: lifecycle + config (bare, no network)", () => {
     };
 
     expect((await update({ rconProtocol: "source", rconPort: 28016 })).httpStatus).toBe(200);
-    const denied = await update({ rconProtocol: "rust-web", restrictWebRconConfiguration: false });
+    const denied = await update({ rconProtocol: "rust-web", allowWebRconConfiguration: true });
     expect(denied.httpStatus).not.toBe(200);
     expect(JSON.stringify(denied.raw)).toContain("Only administrators can configure Rust WebRCON");
     expect((await getConfig()).rconProtocol).toBe("source");
@@ -228,6 +228,12 @@ describe("instance: lifecycle + config (bare, no network)", () => {
       body: { uuid: world.admin.uuid, config: { permission: 10 } }
     });
     expect(promoteAdmin.httpStatus).toBe(200);
+    const incomplete = await adminUpdate({ rconProtocol: "rust-web" });
+    expect(incomplete.httpStatus).not.toBe(200);
+    expect(JSON.stringify(incomplete.raw)).toContain(
+      "requires an explicit host, port and password"
+    );
+    expect((await getConfig()).rconProtocol).toBe("source");
     const webConfig = {
       rconProtocol: "rust-web",
       rconIp: "127.0.0.1",
@@ -236,23 +242,56 @@ describe("instance: lifecycle + config (bare, no network)", () => {
       enableRcon: false
     };
     expect((await adminUpdate(webConfig)).httpStatus).toBe(200);
+    // Assigned owners may intentionally read their own credentials for external clients.
     expect(await getConfig()).toMatchObject(webConfig);
+    const otherUser = await requestPanel({
+      method: "GET",
+      path: "/instance",
+      cookie: world.u2.cookie!,
+      token: world.u2.token!,
+      query: { daemonId: di(), uuid: iu() }
+    });
+    expect(otherUser.httpStatus).not.toBe(200);
+    expect(JSON.stringify(otherUser.raw)).not.toContain(webConfig.rconPassword);
+    const list = await requestPanel({
+      method: "GET",
+      path: "/auth",
+      cookie: u1().cookie,
+      token: u1().token,
+      query: { advanced: true }
+    });
+    expect(list.httpStatus).toBe(200);
+    expect(JSON.stringify(list.data.instances)).not.toContain("rconPassword");
+    expect(JSON.stringify(list.data.instances)).not.toContain(webConfig.rconPassword);
 
     // Omitting the protocol must not let an owner retarget an existing WebRCON instance.
     for (const body of [
       { rconIp: "localhost" },
-      { rconPort: 80 },
+      { rconPort: 80, allowWebRconConfiguration: true },
       { rconPassword: "changed" },
       { enableRcon: true },
       { rconProtocol: "source" }
     ]) {
       const rejected = await update(body);
       expect(rejected.httpStatus).not.toBe(200);
-      expect(JSON.stringify(rejected.raw)).toContain("Only administrators can configure Rust WebRCON");
+      expect(JSON.stringify(rejected.raw)).toContain(
+        "Only administrators can configure Rust WebRCON"
+      );
     }
     expect((await update({ oe: "utf-8" })).httpStatus).toBe(200);
     expect((await update({ rconProtocol: "ws://localhost" })).httpStatus).not.toBe(200);
     expect(await getConfig()).toMatchObject(webConfig);
+
+    const adminRoute = await requestPanel({
+      method: "PUT",
+      path: "/instance",
+      cookie: world.admin.cookie!,
+      token: world.admin.token!,
+      query: { daemonId: di(), uuid: iu() },
+      body: { rconPort: 28017 }
+    });
+    expect(adminRoute.httpStatus).toBe(200);
+    expect((await getConfig()).rconPort).toBe(28017);
 
     expect((await adminUpdate({ rconProtocol: "source" })).httpStatus).toBe(200);
     expect((await update({ rconIp: "", rconPort: 0, rconPassword: "" })).httpStatus).toBe(200);
@@ -690,7 +729,9 @@ describe("instance: more config + lifecycle options (appended)", () => {
       query: { daemonId: di(), uuid: iu() },
       body: { ...cfg, tag: ["integration", "test"], fileCode: "gbk" }
     });
-    expect(p.httpStatus, `admin PUT tag/fileCode: ${JSON.stringify(p.raw).slice(0, 200)}`).toBe(200);
+    expect(p.httpStatus, `admin PUT tag/fileCode: ${JSON.stringify(p.raw).slice(0, 200)}`).toBe(
+      200
+    );
     const v = await requestPanel({
       method: "GET",
       path: "/instance",
@@ -789,14 +830,16 @@ describe("instance: more config + lifecycle options (appended)", () => {
       id: "F-pty-mode-commands",
       step: "opts",
       severity: "info",
-      title: "terminalOption.pty=true toggled + open + command round-trip works (PTY binary present)",
+      title:
+        "terminalOption.pty=true toggled + open + command round-trip works (PTY binary present)",
       detail:
         "instance_update sets terminalOption.pty=true; the daemon spawns the process with the" +
         " platform PTY binary (daemon/lib/pty_<os>_<arch>). A `node test.mjs` process runs under" +
         " a PTY; stdin lines + the ECHO: line-protocol still work; the outputlog buffer carries" +
         " the echoed line (possibly with terminal control bytes). Documented as evidence the" +
         " PTY path is exercised end-to-end (not a bug).",
-      evidence: "pty=true; open 200; RUNNING; command ECHO:ptytest in outputlog (or accepted+RUNNING)"
+      evidence:
+        "pty=true; open 200; RUNNING; command ECHO:ptytest in outputlog (or accepted+RUNNING)"
     });
   });
 
