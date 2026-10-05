@@ -3279,5 +3279,7 @@
   "TXT_CODE_RCON_WEB_connectionError": "WebRCON 连接发生错误；命令可能已执行",
   "TXT_CODE_RCON_WEB_adminOnly": "仅管理员可以配置 Rust WebRCON",
   "TXT_CODE_RCON_WEB_completeTarget": "切换到 Rust WebRCON 时必须明确提供主机、端口和密码",
+  "TXT_CODE_RCON_WEB_reenterTarget": "已清空 Source RCON 连接信息。请重新输入可信的 WebRCON 主机、端口和密码。",
+  "TXT_CODE_RCON_WEB_directAccessWarning": "外部 RCON 客户端不受 MCSManager 命令控制。要撤销直接访问，请更换 Rust RCON 密码；仅取消面板实例分配并不足够。",
   "TXT_CODE_RCON_WEB_closed": "WebRCON 在回复前断开；命令可能已执行"
 }

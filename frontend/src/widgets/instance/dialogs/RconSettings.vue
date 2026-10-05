@@ -3,7 +3,7 @@ import { computed, ref, reactive } from "vue";
 import { t } from "@/lang/i18n";
 import type { InstanceDetail } from "@/types";
 import { updateInstanceConfig } from "@/services/apis/instance";
-import { message, type FormInstance } from "ant-design-vue";
+import { message, type FormInstance, type FormProps } from "ant-design-vue";
 import { reportErrorMsg } from "@/tools/validator";
 import { useAppStateStore } from "@/stores/useAppStateStore";
 
@@ -27,6 +27,48 @@ const formData = reactive({
   enableRcon: false,
   rconProtocol: "source" as "source" | "rust-web"
 });
+const rules = computed<FormProps["rules"]>(() =>
+  formData.rconProtocol === "rust-web"
+    ? {
+        rconIp: [
+          {
+            async validator(_: unknown, value: string) {
+              if (!value.trim()) throw new Error(t("TXT_CODE_RCON_WEB_invalidTarget"));
+            }
+          }
+        ],
+        rconPort: [
+          {
+            async validator(_: unknown, value: string) {
+              const port = Number(value);
+              if (!Number.isInteger(port) || port < 1 || port > 65535)
+                throw new Error(t("TXT_CODE_RCON_WEB_invalidTarget"));
+            }
+          }
+        ],
+        rconPassword: [
+          {
+            async validator(_: unknown, value: string) {
+              if (!value) throw new Error(t("TXT_CODE_RCON_WEB_missingPassword"));
+            }
+          }
+        ]
+      }
+    : undefined
+);
+
+const changeProtocol = (value: unknown) => {
+  if (isReadOnly.value || (value !== "source" && value !== "rust-web")) return;
+  if (value === "rust-web" && !isAdmin.value) return;
+  if (value === "rust-web" && formData.rconProtocol === "source") {
+    // Source targets may be tenant-controlled; do not promote them by prefilling WebRCON.
+    formData.rconIp = "";
+    formData.rconPort = "";
+    formData.rconPassword = "";
+  }
+  formData.rconProtocol = value;
+  formRef.value?.clearValidate();
+};
 
 const open = ref(false);
 const openDialog = () => {
@@ -61,6 +103,7 @@ const submit = async () => {
     open.value = false;
     return message.success(t("TXT_CODE_d3de39b4"));
   } catch (err: any) {
+    if (err.errorFields) return;
     return reportErrorMsg(err.message);
   }
 };
@@ -86,7 +129,7 @@ defineExpose({
           {{ t("TXT_CODE_32d87bf1") }}
         </a-typography-text>
       </a-typography-paragraph>
-      <a-form ref="formRef" :model="formData" layout="vertical">
+      <a-form ref="formRef" :model="formData" :rules="rules" layout="vertical">
         <a-form-item>
           <a-typography-title :level="5">{{ t("TXT_CODE_179d7be4") }}</a-typography-title>
           <a-typography-paragraph>
@@ -99,7 +142,7 @@ defineExpose({
 
         <a-form-item v-if="formData.enableRcon" name="rconProtocol">
           <a-typography-title :level="5">{{ t("TXT_CODE_RCON_PROTOCOL") }}</a-typography-title>
-          <a-select v-model:value="formData.rconProtocol" :disabled="isReadOnly">
+          <a-select :value="formData.rconProtocol" :disabled="isReadOnly" @change="changeProtocol">
             <a-select-option value="source">{{ t("TXT_CODE_RCON_SOURCE") }}</a-select-option>
             <a-select-option
               v-if="isAdmin || formData.rconProtocol === 'rust-web'"
@@ -109,6 +152,18 @@ defineExpose({
             </a-select-option>
           </a-select>
         </a-form-item>
+
+        <a-typography-paragraph v-if="formData.rconProtocol === 'rust-web'">
+          <a-typography-text
+            v-if="props.instanceInfo?.config?.rconProtocol !== 'rust-web'"
+            type="warning"
+          >
+            {{ t("TXT_CODE_RCON_WEB_reenterTarget") }}
+          </a-typography-text>
+          <a-typography-text type="secondary">
+            {{ t("TXT_CODE_RCON_WEB_directAccessWarning") }}
+          </a-typography-text>
+        </a-typography-paragraph>
 
         <a-form-item name="rconIp">
           <a-typography-title :level="5">{{ t("TXT_CODE_d629fa48") }}</a-typography-title>

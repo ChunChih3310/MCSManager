@@ -1,4 +1,4 @@
-import { hasRconConfigUpdate } from "mcsmanager-common";
+import { hasRconConfigUpdate, type RconConfigUpdate } from "mcsmanager-common";
 import type RemoteService from "../entity/remote_service";
 import { $t } from "../i18n";
 import RemoteRequest from "./remote_command";
@@ -6,7 +6,7 @@ import RemoteRequest from "./remote_command";
 export function updateInstanceWithRconAuthorization(
   remoteService: RemoteService | undefined,
   instanceUuid: string,
-  config: any,
+  config: RconConfigUpdate & Record<string, unknown>,
   allowWebRconConfiguration = false
 ) {
   if (config?.rconProtocol === "rust-web" && allowWebRconConfiguration !== true)

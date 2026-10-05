@@ -25,6 +25,7 @@ export {
 
 export { arrayUnique } from "./array";
 export { hasRconConfigUpdate, isWebRconConfigUpdate } from "./rcon_config";
+export type { RconConfig, RconConfigUpdate } from "./rcon_config";
 
 export {
   applyUpgradePackage,

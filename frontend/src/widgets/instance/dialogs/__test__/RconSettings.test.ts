@@ -51,6 +51,7 @@ const ModalStub = defineComponent({
 beforeEach(() => {
   mocks.admin = false;
   mocks.execute.mockReset().mockResolvedValue({});
+  mocks.reportError.mockReset();
   vi.spyOn(message, "success").mockImplementation((() => ({})) as any);
 });
 afterEach(() => {
@@ -79,6 +80,24 @@ async function open(protocol: "source" | "rust-web") {
   await flushPromises();
 }
 
+async function selectProtocol(protocol: "source" | "rust-web") {
+  wrapper.findComponent(Select).vm.$emit("change", protocol);
+  await flushPromises();
+}
+
+async function setTarget(host: string, port: string, password: string) {
+  const inputs = wrapper.findAll("input.ant-input");
+  await inputs[0].setValue(host);
+  await inputs[1].setValue(port);
+  await inputs[2].setValue(password);
+  await flushPromises();
+}
+
+async function submit() {
+  wrapper.findComponent({ name: "AModal" }).vm.$emit("ok");
+  await flushPromises();
+}
+
 describe("RCON settings permissions", () => {
   it("allows a WebRCON owner to reveal their password without modifying settings", async () => {
     await open("rust-web");
@@ -90,6 +109,7 @@ describe("RCON settings permissions", () => {
     await password.find(".ant-input-password-icon").trigger("click");
     expect((password.find("input").element as HTMLInputElement).type).toBe("text");
     expect((password.find("input").element as HTMLInputElement).value).toBe("test-secret");
+    expect(wrapper.text()).toContain("TXT_CODE_RCON_WEB_directAccessWarning");
     wrapper.findComponent({ name: "AModal" }).vm.$emit("ok");
     await flushPromises();
     expect(mocks.execute).not.toHaveBeenCalled();
@@ -105,6 +125,19 @@ describe("RCON settings permissions", () => {
     expect(mocks.execute.mock.calls[0][0].data.rconProtocol).toBe("source");
   });
 
+  it("preserves legacy Source RCON updates with incomplete settings", async () => {
+    await open("source");
+    await setTarget("", "", "");
+    await submit();
+    expect(mocks.execute.mock.calls[0][0].data).toEqual({
+      rconProtocol: "source",
+      rconIp: "",
+      rconPort: 0,
+      rconPassword: "",
+      enableRcon: true
+    });
+  });
+
   it("allows an administrator to submit complete WebRCON settings", async () => {
     mocks.admin = true;
     await open("rust-web");
@@ -117,6 +150,83 @@ describe("RCON settings permissions", () => {
       rconPort: 28016,
       rconPassword: "test-secret"
     });
+  });
+
+  it("clears tenant-controlled Source connection details before switching to WebRCON", async () => {
+    mocks.admin = true;
+    await open("source");
+    const originalConfig = { ...wrapper.props("instanceInfo").config };
+    await selectProtocol("rust-web");
+    expect(wrapper.findComponent(Select).props("value")).toBe("rust-web");
+    expect(
+      wrapper.findAll("input.ant-input").map((input) => (input.element as HTMLInputElement).value)
+    ).toEqual(["", "", ""]);
+    expect(wrapper.props("instanceInfo").config).toEqual(originalConfig);
+    expect(wrapper.text()).toContain("TXT_CODE_RCON_WEB_reenterTarget");
+    await submit();
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(wrapper.findAll(".ant-form-item-explain-error").length).toBe(3);
+    expect(mocks.reportError).not.toHaveBeenCalled();
+
+    await setTarget("trusted.example", "28017", "new-secret");
+    await submit();
+    expect(mocks.execute).toHaveBeenCalledTimes(1);
+    expect(mocks.execute.mock.calls[0][0].data).toEqual({
+      rconProtocol: "rust-web",
+      rconIp: "trusted.example",
+      rconPort: 28017,
+      rconPassword: "new-secret",
+      enableRcon: true
+    });
+  });
+
+  it.each([
+    [" ", "28016", "secret"],
+    ["localhost", "0", "secret"],
+    ["localhost", "65536", "secret"],
+    ["localhost", "1.5", "secret"],
+    ["localhost", "not-a-port", "secret"],
+    ["localhost", "28016", ""]
+  ])("does not submit an invalid WebRCON target (%s, %s)", async (host, port, password) => {
+    mocks.admin = true;
+    await open("source");
+    await selectProtocol("rust-web");
+    await setTarget(host, port, password);
+    await submit();
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(wrapper.find(".ant-form-item-explain-error").exists()).toBe(true);
+  });
+
+  it("clears connection details again when switching back into WebRCON", async () => {
+    mocks.admin = true;
+    await open("rust-web");
+    await selectProtocol("source");
+    await selectProtocol("rust-web");
+    expect(
+      wrapper.findAll("input.ant-input").map((input) => (input.element as HTMLInputElement).value)
+    ).toEqual(["", "", ""]);
+    await submit();
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("restores the saved settings after an unsubmitted protocol change", async () => {
+    mocks.admin = true;
+    await open("source");
+    await selectProtocol("rust-web");
+    wrapper.vm.openDialog();
+    await flushPromises();
+    expect(wrapper.findComponent(Select).props("value")).toBe("source");
+    expect(
+      wrapper.findAll("input.ant-input").map((input) => (input.element as HTMLInputElement).value)
+    ).toEqual(["127.0.0.1", "28016", "test-secret"]);
+    await submit();
+    expect(mocks.execute.mock.calls[0][0].data.rconProtocol).toBe("source");
+  });
+
+  it("does not let an owner promote Source settings to WebRCON", async () => {
+    await open("source");
+    await selectProtocol("rust-web");
+    expect(wrapper.findComponent(Select).props("value")).toBe("source");
   });
 
   it("does not replay protected RCON settings when an owner saves basic settings", async () => {
