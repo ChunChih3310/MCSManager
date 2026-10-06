@@ -1,7 +1,9 @@
+import { AxiosError, AxiosHeaders } from "axios";
 import fs from "fs-extra";
 import os from "os";
 import path from "path";
-import { Readable } from "stream";
+import { PassThrough, Readable } from "stream";
+import { format, inspect } from "util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type Instance from "../../../entity/instance/instance";
 import { QuickInstallTask } from "../quick_install";
@@ -12,7 +14,10 @@ const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
   download: vi.fn()
 }));
-vi.mock("axios", () => ({ default: mocks.download }));
+vi.mock("axios", async () => ({
+  ...(await vi.importActual<typeof import("axios")>("axios")),
+  default: mocks.download
+}));
 vi.mock("../../log", () => ({ default: { info: mocks.info, error: mocks.error } }));
 vi.mock("../../file_router_service", () => ({
   getFileManager: () => ({
@@ -39,6 +44,214 @@ beforeEach(() => {
   mocks.download.mockReset();
 });
 afterEach(() => vi.restoreAllMocks());
+
+const downloadUrl = "https://user:url-password@example.invalid/server.jar?token=download-secret";
+
+function createDownloadInstance() {
+  return {
+    instanceUuid: "download-test",
+    config: { nickname: "test server", processType: "general", updateCommand: "" },
+    absoluteCwdPath: () => "/isolated-test",
+    print: vi.fn(),
+    println: vi.fn(),
+    status: vi.fn(),
+    resetConfigWithoutDocker: vi.fn(),
+    parameters: vi.fn()
+  };
+}
+
+async function expectSanitizedDownloadFailure(
+  originalError: unknown,
+  expectedMessage: string,
+  url = downloadUrl
+) {
+  const instance = createDownloadInstance();
+  const task = new QuickInstallTask("test server", url, undefined, instance as unknown as Instance);
+  const onError = vi.fn();
+  task.on("error", onError);
+  const stopped = new Promise<void>((resolve) => task.once("stopped", resolve));
+  await task.start();
+  await expect(task.wait()).rejects.toThrow(expectedMessage);
+  await stopped;
+
+  expect(task.status()).toBe(-1);
+  expect(instance.status).toHaveBeenLastCalledWith(0);
+  expect(instance.parameters).not.toHaveBeenCalled();
+  expect(instance.resetConfigWithoutDocker).not.toHaveBeenCalled();
+  expect(task.errorInfo).not.toBe(originalError);
+  expect(task.errorInfo?.message).toBe(expectedMessage);
+  for (const property of ["config", "request", "response", "cause", "input"])
+    expect(task.errorInfo).not.toHaveProperty(property);
+  expect(mocks.error).toHaveBeenCalledTimes(1);
+  expect(mocks.error).toHaveBeenCalledWith(expect.any(String), task.errorInfo);
+  expect(instance.println).toHaveBeenCalledWith("ERROR", expectedMessage);
+  expect(onError).toHaveBeenCalledWith(task.errorInfo);
+
+  // Match logger formatting as well as deep Error inspection, not just enumerable JSON fields.
+  const output = [
+    ...mocks.error.mock.calls.map((args) => format(...args)),
+    inspect(
+      {
+        taskError: task.errorInfo,
+        info: mocks.info.mock.calls,
+        console: { print: instance.print.mock.calls, println: instance.println.mock.calls },
+        events: onError.mock.calls
+      },
+      { depth: null }
+    )
+  ].join("\n");
+  for (const secret of [
+    url,
+    "url-password",
+    "download-secret",
+    "header-secret",
+    "response-secret",
+    "cause-secret"
+  ])
+    expect(output).not.toContain(secret);
+}
+
+describe("quick install download error sanitization", () => {
+  it.each([
+    { name: "DNS failure", code: "ENOTFOUND", status: undefined, details: "ENOTFOUND" },
+    {
+      name: "HTTP 401",
+      code: "ERR_BAD_REQUEST",
+      status: 401,
+      details: "HTTP 401, ERR_BAD_REQUEST"
+    },
+    {
+      name: "HTTP 403",
+      code: "ERR_BAD_REQUEST",
+      status: 403,
+      details: "HTTP 403, ERR_BAD_REQUEST"
+    },
+    {
+      name: "TLS failure",
+      code: "ERR_TLS_CERT_ALTNAME_INVALID",
+      status: undefined,
+      details: "ERR_TLS_CERT_ALTNAME_INVALID"
+    },
+    {
+      name: "redirect failure",
+      code: "ERR_FR_TOO_MANY_REDIRECTS",
+      status: undefined,
+      details: "ERR_FR_TOO_MANY_REDIRECTS"
+    },
+    { name: "timeout", code: "ETIMEDOUT", status: undefined, details: "ETIMEDOUT" },
+    { name: "cancellation", code: "ERR_CANCELED", status: undefined, details: "ERR_CANCELED" },
+    {
+      name: "untrusted code and status",
+      code: "download-secret",
+      status: "url-password",
+      details: ""
+    },
+    {
+      name: "out of range status",
+      code: "ERR_BAD_RESPONSE",
+      status: 600,
+      details: "ERR_BAD_RESPONSE"
+    },
+    {
+      name: "fractional status",
+      code: "ERR_BAD_RESPONSE",
+      status: 401.5,
+      details: "ERR_BAD_RESPONSE"
+    }
+  ])("sanitizes $name without losing safe diagnostics", async ({ code, status, details }) => {
+    const config = {
+      url: downloadUrl,
+      headers: new AxiosHeaders({ Authorization: "Bearer header-secret" })
+    };
+    const request = { url: downloadUrl };
+    const response =
+      status === undefined
+        ? undefined
+        : {
+            data: "response-secret",
+            status: status as number,
+            statusText: "response-secret",
+            headers: { secret: "header-secret" },
+            config,
+            request
+          };
+    const error = new AxiosError(`Request failed: ${downloadUrl}`, code, config, request, response);
+    Object.assign(error, { cause: new Error(`cause-secret: ${downloadUrl}`) });
+    const createWriteStream = vi
+      .spyOn(fs, "createWriteStream")
+      .mockReturnValue(new PassThrough() as fs.WriteStream);
+    mocks.download.mockRejectedValue(error);
+
+    await expectSanitizedDownloadFailure(
+      error,
+      `TXT_CODE_9ea5696b${details ? ` (${details})` : ""}`
+    );
+    expect(mocks.download).toHaveBeenCalledTimes(1);
+    expect(createWriteStream).not.toHaveBeenCalled();
+  });
+
+  it("handles destination errors even when the HTTP response is delayed", async () => {
+    const error = Object.assign(new Error(`Write failed: ${downloadUrl}`), {
+      cause: new Error("cause-secret")
+    });
+    const source = Readable.from([Buffer.from("downloaded content")]);
+    const destination = new PassThrough();
+    vi.spyOn(fs, "createWriteStream").mockImplementation(() => {
+      queueMicrotask(() => destination.destroy(error));
+      return destination as fs.WriteStream;
+    });
+    mocks.download.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return { data: source, headers: {} };
+    });
+
+    await expectSanitizedDownloadFailure(error, "TXT_CODE_9ea5696b");
+    expect(mocks.download).toHaveBeenCalledTimes(1);
+    expect(source.destroyed).toBe(true);
+    expect(destination.destroyed).toBe(true);
+  });
+
+  it("releases the response stream if opening the destination throws", async () => {
+    const error = Object.assign(new Error(`Cannot open destination: ${downloadUrl}`), {
+      cause: new Error("cause-secret")
+    });
+    const source = new PassThrough();
+    mocks.download.mockResolvedValue({ data: source, headers: {} });
+    vi.spyOn(fs, "createWriteStream").mockImplementation(() => {
+      throw error;
+    });
+
+    await expectSanitizedDownloadFailure(error, "TXT_CODE_9ea5696b");
+    expect(mocks.download).toHaveBeenCalledTimes(1);
+    expect(source.destroyed).toBe(true);
+  });
+
+  it("sanitizes errors emitted by the response stream", async () => {
+    const error = Object.assign(new Error(`Connection lost: ${downloadUrl}`), {
+      config: { url: downloadUrl },
+      cause: new Error("cause-secret")
+    });
+    const source = new Readable({
+      read() {
+        this.destroy(error);
+      }
+    });
+    const destination = new PassThrough();
+    vi.spyOn(fs, "createWriteStream").mockReturnValue(destination as fs.WriteStream);
+    mocks.download.mockResolvedValue({ data: source, headers: {} });
+
+    await expectSanitizedDownloadFailure(error, "TXT_CODE_9ea5696b");
+    expect(mocks.download).toHaveBeenCalledTimes(1);
+    expect(source.destroyed).toBe(true);
+    expect(destination.destroyed).toBe(true);
+  });
+
+  it("sanitizes URL parsing errors before a request is sent", async () => {
+    const invalidUrl = "https://user:url-password@[invalid]/server.jar?token=download-secret";
+    await expectSanitizedDownloadFailure(undefined, "TXT_CODE_9ea5696b", invalidUrl);
+    expect(mocks.download).not.toHaveBeenCalled();
+  });
+});
 
 describe("quick install config logging", () => {
   it("does not print a credential-bearing download URL after a successful download", async () => {
