@@ -103,6 +103,9 @@ export class QuickInstallTask extends AsyncTask {
     try {
       await this.downloadToFile();
     } catch (error) {
+      const responseBody = isAxiosError(error) ? error.response?.data : undefined;
+      // Rejected HTTP responses never reach downloadStream; abort alone cannot release them.
+      if (responseBody instanceof Readable) responseBody.destroy();
       throw createSafeDownloadError(error);
     }
   }

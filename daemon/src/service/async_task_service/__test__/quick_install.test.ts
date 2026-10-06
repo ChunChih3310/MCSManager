@@ -1,9 +1,13 @@
 import { AxiosError, AxiosHeaders } from "axios";
+import { once } from "events";
 import fs from "fs-extra";
+import { Agent, createServer } from "http";
+import type { Socket } from "net";
 import os from "os";
 import path from "path";
 import { PassThrough, Readable } from "stream";
 import { format, inspect } from "util";
+import { gzipSync } from "zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type Instance from "../../../entity/instance/instance";
 import { QuickInstallTask } from "../quick_install";
@@ -43,7 +47,9 @@ beforeEach(() => {
   mocks.readFile.mockReset();
   mocks.download.mockReset();
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const downloadUrl = "https://user:url-password@example.invalid/server.jar?token=download-secret";
 
@@ -177,9 +183,9 @@ describe("quick install download error sanitization", () => {
           };
     const error = new AxiosError(`Request failed: ${downloadUrl}`, code, config, request, response);
     Object.assign(error, { cause: new Error(`cause-secret: ${downloadUrl}`) });
-    const createWriteStream = vi
-      .spyOn(fs, "createWriteStream")
-      .mockReturnValue(new PassThrough() as fs.WriteStream);
+    const createWriteStream = vi.spyOn(fs, "createWriteStream").mockImplementation(() => {
+      throw new Error("Unexpected destination file creation");
+    });
     mocks.download.mockRejectedValue(error);
 
     await expectSanitizedDownloadFailure(
@@ -190,6 +196,99 @@ describe("quick install download error sanitization", () => {
     expect(createWriteStream).not.toHaveBeenCalled();
   });
 
+  it.each([401, 403, 500])(
+    "destroys an HTTP %i response body without consuming it",
+    async (status) => {
+      const body = new PassThrough();
+      body.write("response-secret");
+      const read = vi.spyOn(body, "read");
+      const config = { url: downloadUrl, headers: new AxiosHeaders() };
+      const code = status < 500 ? "ERR_BAD_REQUEST" : "ERR_BAD_RESPONSE";
+      const error = new AxiosError(`Request failed: ${downloadUrl}`, code, config, undefined, {
+        data: body,
+        status,
+        statusText: "response-secret",
+        headers: {},
+        config
+      });
+      const createWriteStream = vi.spyOn(fs, "createWriteStream").mockImplementation(() => {
+        throw new Error("Unexpected destination file creation");
+      });
+      mocks.download.mockRejectedValue(error);
+
+      try {
+        await expectSanitizedDownloadFailure(error, `TXT_CODE_9ea5696b (HTTP ${status}, ${code})`);
+        expect(body.destroyed).toBe(true);
+        expect(read).not.toHaveBeenCalled();
+        expect(createWriteStream).not.toHaveBeenCalled();
+      } finally {
+        body.destroy();
+      }
+    }
+  );
+
+  it.each(["plain", "gzip"])("closes a pending %s HTTP 403 connection", async (encoding) => {
+    const { default: axios } = await vi.importActual<typeof import("axios")>("axios");
+    const agent = new Agent({ keepAlive: false });
+    const sockets = new Set<Socket>();
+    let responseBody: Readable | undefined;
+    const server = createServer((_, response) => {
+      response.writeHead(403, {
+        "Content-Type": "application/octet-stream",
+        ...(encoding === "gzip" ? { "Content-Encoding": "gzip" } : {})
+      });
+      const content = Buffer.from("response-secret");
+      response.write(encoding === "gzip" ? gzipSync(content) : content);
+      // Keep the response pending so only client-side cleanup can close the connection.
+    });
+    const connectionClosed = new Promise<void>((resolve) => {
+      server.once("connection", (socket) => {
+        sockets.add(socket);
+        socket.once("close", () => {
+          sockets.delete(socket);
+          resolve();
+        });
+      });
+    });
+    const createWriteStream = vi.spyOn(fs, "createWriteStream").mockImplementation(() => {
+      throw new Error("Unexpected destination file creation");
+    });
+
+    try {
+      const listening = once(server, "listening");
+      server.listen(0, "127.0.0.1");
+      await listening;
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Missing test server address");
+      const url = `http://user:url-password@127.0.0.1:${address.port}/server.jar?token=download-secret`;
+      mocks.download.mockImplementation(async (config) => {
+        try {
+          return await axios({ ...config, httpAgent: agent, proxy: false });
+        } catch (error) {
+          if (error instanceof AxiosError) responseBody = error.response?.data;
+          throw error;
+        }
+      });
+
+      await expectSanitizedDownloadFailure(
+        undefined,
+        "TXT_CODE_9ea5696b (HTTP 403, ERR_BAD_REQUEST)",
+        url
+      );
+      expect(responseBody).toBeInstanceOf(Readable);
+      expect(responseBody?.destroyed).toBe(true);
+      await connectionClosed;
+      expect(sockets.size).toBe(0);
+      expect(mocks.download).toHaveBeenCalledTimes(1);
+      expect(createWriteStream).not.toHaveBeenCalled();
+    } finally {
+      responseBody?.destroy();
+      agent.destroy();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("handles destination errors even when the HTTP response is delayed", async () => {
     const error = Object.assign(new Error(`Write failed: ${downloadUrl}`), {
       cause: new Error("cause-secret")
@@ -198,7 +297,7 @@ describe("quick install download error sanitization", () => {
     const destination = new PassThrough();
     vi.spyOn(fs, "createWriteStream").mockImplementation(() => {
       queueMicrotask(() => destination.destroy(error));
-      return destination as fs.WriteStream;
+      return destination as unknown as fs.WriteStream;
     });
     mocks.download.mockImplementation(async () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -237,7 +336,7 @@ describe("quick install download error sanitization", () => {
       }
     });
     const destination = new PassThrough();
-    vi.spyOn(fs, "createWriteStream").mockReturnValue(destination as fs.WriteStream);
+    vi.spyOn(fs, "createWriteStream").mockReturnValue(destination as unknown as fs.WriteStream);
     mocks.download.mockResolvedValue({ data: source, headers: {} });
 
     await expectSanitizedDownloadFailure(error, "TXT_CODE_9ea5696b");
